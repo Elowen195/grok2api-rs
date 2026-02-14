@@ -1,0 +1,82 @@
+name: binary-release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-musl
+            arch: linux-amd64
+          - target: aarch64-unknown-linux-musl
+            arch: linux-arm64
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install Zig
+        uses: mlugg/setup-zig@v2
+
+      - name: Install cargo-zigbuild
+        run: cargo install --locked cargo-zigbuild
+
+      - name: Build binary
+        run: cargo zigbuild --release --target ${{ matrix.target }}
+
+      - name: Package
+        shell: bash
+        run: |
+          set -euxo pipefail
+          pkg_dir="dist/grok2api-rs-${{ matrix.arch }}"
+          mkdir -p "$pkg_dir"
+          cp "target/${{ matrix.target }}/release/grok2api-rs" "$pkg_dir/"
+          cp config.defaults.toml "$pkg_dir/"
+          cp README.md "$pkg_dir/"
+          tar -C dist -czf "dist/grok2api-rs-${{ matrix.arch }}.tar.gz" "grok2api-rs-${{ matrix.arch }}"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: grok2api-rs-${{ matrix.arch }}
+          path: dist/grok2api-rs-${{ matrix.arch }}.tar.gz
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build-linux
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+
+      - name: Collect release files
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p release
+          find dist -type f -name "*.tar.gz" -exec cp {} release/ \;
+          ls -lh release
+
+      - name: Upload release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/*.tar.gz
