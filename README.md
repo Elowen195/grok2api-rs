@@ -36,6 +36,7 @@
 | Responses API | `/v1/responses` | `downstream.enable_responses` |
 | Images Generations | `/v1/images/generations` | `downstream.enable_images` |
 | Images NSFW | `/v1/images/generations/nsfw` | `downstream.enable_images_nsfw` |
+| Images Generations -> NSFW | `/v1/images/generations` | `downstream.images_generations_use_nsfw` |
 | Models | `/v1/models` | `downstream.enable_models` |
 | Files | `/v1/files` | `downstream.enable_files` |
 
@@ -189,6 +190,7 @@ enable_chat_completions = true
 enable_responses = true
 enable_images = true
 enable_images_nsfw = true
+images_generations_use_nsfw = false
 enable_models = true
 enable_files = true
 ```
@@ -198,6 +200,7 @@ enable_files = true
 - `app.api_key`：下游调用的 Bearer Token（留空表示不校验）。
 - `app.app_key`：后台登录密码。
 - `app.image_format`：默认图片返回格式（`url` / `base64`）。若请求传了 `response_format`，以请求参数为准。
+- `downstream.images_generations_use_nsfw`：开启后，`/v1/images/generations` 直接复用 NSFW 生图链路。
 - `grok.wreq_emulation*`：上游浏览器指纹模板，可全局/Usage/NSFW 分开配置。
 - `grok.base_proxy_url` / `grok.asset_proxy_url`：可选代理地址。
 

@@ -68,6 +68,13 @@ async fn create_image(
     if !enabled {
         return Err(ApiError::not_found("Endpoint disabled"));
     }
+    let use_nsfw: bool = get_config("downstream.images_generations_use_nsfw", false).await;
+    if use_nsfw {
+        tracing::info!(
+            "Route /v1/images/generations uses NSFW pipeline by downstream.images_generations_use_nsfw=true"
+        );
+        return create_image_nsfw_impl(req, false).await;
+    }
 
     let model_id = req
         .model
@@ -180,10 +187,18 @@ async fn create_image_nsfw(
     Json(req): Json<ImageRequest>,
 ) -> Result<Response, ApiError> {
     verify_api_key(&headers).await?;
+    create_image_nsfw_impl(req, true).await
+}
 
-    let enabled: bool = get_config("downstream.enable_images", true).await;
-    if !enabled {
-        return Err(ApiError::not_found("Endpoint disabled"));
+async fn create_image_nsfw_impl(
+    req: ImageRequest,
+    check_images_enabled: bool,
+) -> Result<Response, ApiError> {
+    if check_images_enabled {
+        let enabled: bool = get_config("downstream.enable_images", true).await;
+        if !enabled {
+            return Err(ApiError::not_found("Endpoint disabled"));
+        }
     }
     let nsfw_enabled: bool = get_config("downstream.enable_images_nsfw", true).await;
     if !nsfw_enabled {
