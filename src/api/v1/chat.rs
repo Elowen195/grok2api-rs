@@ -18,7 +18,56 @@ use crate::services::grok::processor::{
 use crate::services::token::{EffortType, TokenService};
 
 const VALID_ROLES: &[&str] = &["developer", "system", "user", "assistant"];
-const USER_CONTENT_TYPES: &[&str] = &["text", "image_url", "input_audio", "file"];
+const USER_CONTENT_TYPES: &[&str] = &[
+    "text",
+    "input_text",
+    "image_url",
+    "input_image",
+    "input_audio",
+    "file",
+    "input_file",
+];
+
+fn extract_image_url_from_block(block: &JsonValue) -> Option<String> {
+    block
+        .get("image_url")
+        .and_then(|v| {
+            v.get("url")
+                .and_then(|u| u.as_str())
+                .or_else(|| v.as_str())
+                .map(|s| s.to_string())
+        })
+        .or_else(|| {
+            block
+                .get("url")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
+        })
+}
+
+fn extract_file_payload_from_block(block: &JsonValue) -> Option<String> {
+    block
+        .get("file")
+        .and_then(|v| {
+            v.get("url")
+                .and_then(|u| u.as_str())
+                .or_else(|| v.get("data").and_then(|d| d.as_str()))
+                .or_else(|| v.as_str())
+                .map(|s| s.to_string())
+        })
+        .or_else(|| {
+            block
+                .get("file_url")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
+        })
+        .or_else(|| {
+            block
+                .get("file_data")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
+        })
+}
 
 #[derive(Debug, Deserialize)]
 pub struct VideoConfig {
@@ -97,7 +146,7 @@ fn validate_request(req: &ChatCompletionRequest) -> Result<(), ApiError> {
                         ))
                         .with_param(format!("messages.{idx}.content.{bidx}.type")));
                     }
-                } else if block_type != "text" {
+                } else if block_type != "text" && block_type != "input_text" {
                     return Err(ApiError::invalid_request(format!(
                         "The `{}` role only supports 'text' type, got '{}'",
                         role, block_type
@@ -106,19 +155,15 @@ fn validate_request(req: &ChatCompletionRequest) -> Result<(), ApiError> {
                 }
 
                 match block_type {
-                    "text" => {
+                    "text" | "input_text" => {
                         let text = block.get("text").and_then(|v| v.as_str()).unwrap_or("");
                         if text.trim().is_empty() {
                             return Err(ApiError::invalid_request("Text content cannot be empty")
                                 .with_param(format!("messages.{idx}.content.{bidx}.text")));
                         }
                     }
-                    "image_url" => {
-                        let image_url = block.get("image_url");
-                        let url = image_url
-                            .and_then(|v| v.get("url"))
-                            .and_then(|v| v.as_str());
-                        if url.is_none() {
+                    "image_url" | "input_image" => {
+                        if extract_image_url_from_block(block).is_none() {
                             return Err(ApiError::invalid_request(
                                 "image_url must have a 'url' field",
                             )
@@ -126,10 +171,11 @@ fn validate_request(req: &ChatCompletionRequest) -> Result<(), ApiError> {
                         }
                     }
                     "input_audio" => {
-                        let data = block
-                            .get("input_audio")
-                            .and_then(|v| v.get("data"))
-                            .and_then(|v| v.as_str());
+                        let data = block.get("input_audio").and_then(|v| {
+                            v.get("data")
+                                .and_then(|d| d.as_str())
+                                .or_else(|| v.as_str())
+                        });
                         if data.is_none() {
                             return Err(ApiError::invalid_request(
                                 "input_audio must have a 'data' field",
@@ -137,14 +183,8 @@ fn validate_request(req: &ChatCompletionRequest) -> Result<(), ApiError> {
                             .with_param(format!("messages.{idx}.content.{bidx}.input_audio")));
                         }
                     }
-                    "file" => {
-                        let file = block.get("file");
-                        let url = file.and_then(|v| {
-                            v.get("url")
-                                .and_then(|v| v.as_str())
-                                .or_else(|| v.get("data").and_then(|v| v.as_str()))
-                        });
-                        if url.is_none() {
+                    "file" | "input_file" => {
+                        if extract_file_payload_from_block(block).is_none() {
                             return Err(ApiError::invalid_request(
                                 "file must have a 'url' or 'data' field",
                             )

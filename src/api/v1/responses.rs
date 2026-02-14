@@ -59,12 +59,28 @@ fn normalize_message(msg: &JsonValue) -> JsonValue {
                 if typ == "input_image" {
                     let url = block
                         .get("image_url")
-                        .and_then(|v| v.get("url"))
-                        .and_then(|v| v.as_str())
+                        .and_then(|v| v.get("url").and_then(|u| u.as_str()).or_else(|| v.as_str()))
                         .or_else(|| block.get("url").and_then(|v| v.as_str()))
                         .unwrap_or("");
                     if !url.is_empty() {
                         new_arr.push(json!({"type": "image_url", "image_url": {"url": url}}));
+                        continue;
+                    }
+                }
+                if typ == "input_file" {
+                    let file_value = block
+                        .get("file")
+                        .and_then(|v| {
+                            v.get("url")
+                                .and_then(|u| u.as_str())
+                                .or_else(|| v.get("data").and_then(|d| d.as_str()))
+                                .or_else(|| v.as_str())
+                        })
+                        .or_else(|| block.get("file_url").and_then(|v| v.as_str()))
+                        .or_else(|| block.get("file_data").and_then(|v| v.as_str()))
+                        .unwrap_or("");
+                    if !file_value.is_empty() {
+                        new_arr.push(json!({"type": "file", "file": {"url": file_value}}));
                         continue;
                     }
                 }

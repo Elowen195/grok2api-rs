@@ -27,6 +27,47 @@ pub struct ChatRequest {
 
 pub struct MessageExtractor;
 
+fn extract_image_url_from_block(block: &JsonValue) -> Option<String> {
+    block
+        .get("image_url")
+        .and_then(|v| {
+            v.get("url")
+                .and_then(|u| u.as_str())
+                .or_else(|| v.as_str())
+                .map(|s| s.to_string())
+        })
+        .or_else(|| {
+            block
+                .get("url")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
+        })
+}
+
+fn extract_file_payload_from_block(block: &JsonValue) -> Option<String> {
+    block
+        .get("file")
+        .and_then(|v| {
+            v.get("url")
+                .and_then(|u| u.as_str())
+                .or_else(|| v.get("data").and_then(|d| d.as_str()))
+                .or_else(|| v.as_str())
+                .map(|s| s.to_string())
+        })
+        .or_else(|| {
+            block
+                .get("file_url")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
+        })
+        .or_else(|| {
+            block
+                .get("file_data")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
+        })
+}
+
 impl MessageExtractor {
     pub fn extract(
         messages: &[JsonValue],
@@ -49,27 +90,16 @@ impl MessageExtractor {
                     for item in list {
                         let item_type = item.get("type").and_then(|v| v.as_str()).unwrap_or("");
                         match item_type {
-                            "text" => {
+                            "text" | "input_text" => {
                                 if let Some(text) = item.get("text").and_then(|v| v.as_str()) {
                                     if !text.trim().is_empty() {
                                         parts.push(text.to_string());
                                     }
                                 }
                             }
-                            "image_url" => {
-                                if let Some(url_obj) = item.get("image_url") {
-                                    let url = if let Some(u) =
-                                        url_obj.get("url").and_then(|v| v.as_str())
-                                    {
-                                        u.to_string()
-                                    } else if let Some(u) = url_obj.as_str() {
-                                        u.to_string()
-                                    } else {
-                                        String::new()
-                                    };
-                                    if !url.is_empty() {
-                                        attachments.push(("image".to_string(), url));
-                                    }
+                            "image_url" | "input_image" => {
+                                if let Some(url) = extract_image_url_from_block(item) {
+                                    attachments.push(("image".to_string(), url));
                                 }
                             }
                             "input_audio" => {
@@ -93,22 +123,14 @@ impl MessageExtractor {
                                     }
                                 }
                             }
-                            "file" => {
+                            "file" | "input_file" => {
                                 if is_video {
                                     return Err(ApiError::invalid_request(
                                         "视频模型不支持 file 类型",
                                     ));
                                 }
-                                if let Some(file_obj) = item.get("file") {
-                                    let url = file_obj
-                                        .get("url")
-                                        .and_then(|v| v.as_str())
-                                        .or_else(|| file_obj.get("data").and_then(|v| v.as_str()))
-                                        .or_else(|| file_obj.as_str())
-                                        .unwrap_or("");
-                                    if !url.is_empty() {
-                                        attachments.push(("file".to_string(), url.to_string()));
-                                    }
+                                if let Some(url) = extract_file_payload_from_block(item) {
+                                    attachments.push(("file".to_string(), url));
                                 }
                             }
                             _ => {}
@@ -313,10 +335,7 @@ impl GrokChatService {
                 .and_then(|v| v.to_str().ok())
                 .unwrap_or("<unknown>")
                 .to_string();
-            let body = response
-                .text()
-                .await
-                .unwrap_or_else(|_| String::new());
+            let body = response.text().await.unwrap_or_else(|_| String::new());
             let preview = body_preview(&body, 220);
             if !preview.is_empty() {
                 tracing::warn!(
